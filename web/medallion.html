@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeViz Medallion</title>
+<style>
+  :root {
+    --bg: #140a0c;
+    --panel: #1e1013;
+    --panel-2: #26151a;
+    --ink: #f0e4cf;
+    --muted: #b29b88;
+    --rule: #3d2429;
+    --accent: #3fb5a8;
+    --hot: #ff5a2a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    min-height: 100vh;
+  }
+  aside {
+    background: var(--panel);
+    border-right: 1px solid var(--rule);
+    padding: 14px 16px 24px;
+    overflow-y: auto;
+    max-height: 100vh;
+  }
+  h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .04em; }
+  .sub { color: var(--muted); margin: 0 0 12px; font-size: 12px; }
+  fieldset { border: 0; border-top: 1px solid var(--rule); margin: 0; padding: 10px 0 8px; }
+  legend { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; padding: 0 6px 0 0; }
+  label.row { display: grid; grid-template-columns: 78px 1fr 44px; align-items: center; gap: 8px; margin: 5px 0; }
+  label.row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  label.chk { display: inline-flex; align-items: center; gap: 6px; margin: 4px 12px 4px 0; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=color] { width: 100%; height: 24px; border: 1px solid var(--rule); background: none; padding: 0; }
+  .colors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .colors span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  button {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--rule);
+    padding: 6px 10px; border-radius: 4px; font: inherit; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  .src { color: var(--muted); font-size: 12px; word-break: break-all; }
+  .fold { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 12px; }
+  ol.anoms { margin: 6px 0 0; padding-left: 18px; }
+  ol.anoms li { margin: 3px 0; cursor: default; }
+  ol.anoms li:hover { color: var(--hot); }
+  ol.anoms .d { color: var(--muted); font-variant-numeric: tabular-nums; }
+  main { position: relative; display: grid; place-items: center; padding: 16px; min-width: 0; }
+  canvas { display: block; max-width: 100%; }
+  #tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: rgba(20, 10, 12, .94); border: 1px solid var(--rule); border-radius: 4px;
+    padding: 7px 9px; max-width: 320px; font-size: 12px;
+  }
+  #tip b { display: block; margin-bottom: 2px; }
+  #tip .m { color: var(--muted); }
+  #tip .r { color: var(--hot); }
+  #drop {
+    position: fixed; inset: 0; display: none; place-items: center; z-index: 20;
+    background: rgba(20, 10, 12, .8); border: 2px dashed var(--accent); font-size: 16px;
+  }
+  #err { position: fixed; bottom: 0; left: 0; right: 0; background: #600; color: #fff; padding: 8px; display: none; white-space: pre-wrap; }
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; }
+    aside { max-height: none; border-right: 0; border-bottom: 1px solid var(--rule); }
+    main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <h1>CodeViz · Medallion</h1>
+  <p class="sub">Architecture as a hypotrochoid tile. Deviations from the codebase baseline break the pattern.</p>
+
+  <fieldset>
+    <legend>Data</legend>
+    <div class="src" id="srcName">—</div>
+    <div class="btns">
+      <button id="btnNew" title="Generate a new synthetic codebase">New codebase</button>
+      <button id="btnLoad" title="Load a codeviz.scene/v0 JSON file (or drop one on the page)">Load JSON…</button>
+      <input type="file" id="file" accept=".json,application/json" hidden>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Curve</legend>
+    <label class="row">R outer <input type="range" id="R" min="60" max="240" step="1"><output></output></label>
+    <label class="row">r inner <input type="range" id="r" min="5" max="200" step="0.5"><output></output></label>
+    <label class="row">d offset <input type="range" id="d" min="0" max="240" step="1"><output></output></label>
+    <label class="row">Resolution <input type="range" id="res" min="150" max="3000" step="10"><output></output></label>
+    <label class="chk"><input type="checkbox" id="lock"> Lock symmetry</label>
+    <span class="fold" id="fold"></span>
+    <div class="btns">
+      <button id="btnFromData" title="Derive R, r, d from the loaded codebase metrics">Shape from data</button>
+      <button id="btnShuffle" title="Randomize R, r, d">Shuffle shape</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Anomaly</legend>
+    <label class="row">Strength <input type="range" id="strength" min="0" max="2" step="0.01"><output></output></label>
+    <label class="row">Span <input type="range" id="span" min="0.3" max="6" step="0.05"><output></output></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Layers</legend>
+    <label class="chk"><input type="checkbox" id="lBorder"> Package border</label>
+    <label class="chk"><input type="checkbox" id="lStrap"> Imports</label>
+    <label class="chk"><input type="checkbox" id="lFill"> Tile fill</label>
+    <label class="chk"><input type="checkbox" id="lGhost"> Baseline ghost</label>
+    <label class="chk"><input type="checkbox" id="lStar"> Center star</label>
+    <label class="chk"><input type="checkbox" id="lCorners"> Corners</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Palette</legend>
+    <div class="colors">
+      <label><span>Base</span><input type="color" id="cBase"></label>
+      <label><span>Anomaly</span><input type="color" id="cHot"></label>
+      <label><span>Ground</span><input type="color" id="cGround"></label>
+    </div>
+    <div class="btns"><button id="btnPng">Export PNG</button></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Most deviant</legend>
+    <ol class="anoms" id="anoms"></ol>
+  </fieldset>
+</aside>
+
+<main><canvas id="cv"></canvas></main>
+<div id="tip"></div>
+<div id="drop">Drop a codeviz.scene/v0 JSON file</div>
+<div id="err"></div>
+
+<script id="codeviz-scene" type="application/json">null</script>
+<script>
+'use strict';
+window.addEventListener('error', e => {
+  const el = document.getElementById('err');
+  el.textContent = 'Error: ' + e.message + ' (line ' + e.lineno + ')';
+  el.style.display = 'block';
+});
+
+// ─────────────────────────────────────────────────────────────
+// Math helpers
+// ─────────────────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hash1(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+// 1D value noise in [-1, 1]
+function vnoise(x, seed) {
+  const i = Math.floor(x), f = x - i, s = seed * 17.31;
+  const a = hash1(i + s), b = hash1(i + 1 + s);
+  const u = f * f * (3 - 2 * f);
+  return (a + (b - a) * u) * 2 - 1;
+}
+
+// Best rational approximation p/q of x with q <= maxQ (continued fractions).
+function rational(x, maxQ) {
+  let h0 = 0, h1 = 1, k0 = 1, k1 = 0, v = x;
+  for (let i = 0; i < 32; i++) {
+    const a = Math.floor(v);
+    const h2 = a * h1 + h0, k2 = a * k1 + k0;
+    if (k2 > maxQ) break;
+    h0 = h1; h1 = h2; k0 = k1; k1 = k2;
+    const frac = v - a;
+    if (frac < 1e-9) break;
+    v = 1 / frac;
+  }
+  return { p: h1, q: k1 };
+}
+
+function hex2rgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function mix(c1, c2, t) { return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)]; }
+function rgba(c, a = 1) { return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; }
+
+// ─────────────────────────────────────────────────────────────
+// Scene model — draft contract "codeviz.scene/v0".
+// The Go analyzer will emit this; the renderer only consumes it.
+//
+// scene = {
+//   schema: "codeviz.scene/v0", project, language,
+//   summary: { packages, units, totalLoc, medianLoc, medianCyclomatic,
+//              importDensity, meanInstability },
+//   packages: [{ id, loc, afferent, efferent, instability, cohesion,
+//                meanCyclomatic, imports: [pkgId], deviation: 0..1, reasons: [..],
+//                units: [{ id, file, line, loc, cyclomatic, deviation: 0..1, reasons: [..] }] }]
+// }
+// ─────────────────────────────────────────────────────────────
+
+// Stand-in for the Go domain's baseline/deviation logic, used only for
+// synthetic data. Robust z-score (median/MAD), one-sided where "less" is fine.
+function median(xs) { const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+function robust(xs) { const m = median(xs); const mad = median(xs.map(x => Math.abs(x - m))); return { m, s: 1.4826 * mad + 1e-6 }; }
+const devFromZ = z => 1 - Math.exp(-Math.max(0, z - 2) / 2.5);
+
+function buildScene(project, pkgs) {
+  const byId = new Map(pkgs.map(p => [p.id, p]));
+  for (const p of pkgs) p.afferent = 0;
+  for (const p of pkgs) for (const i of p.imports) if (byId.has(i)) byId.get(i).afferent++;
+
+  const units = pkgs.flatMap(p => p.units);
+  const bLoc = robust(units.map(u => Math.log(u.loc)));
+  const bCyc = robust(units.map(u => u.cyclomatic));
+  for (const u of units) {
+    const zl = (Math.log(u.loc) - bLoc.m) / bLoc.s;
+    const zc = (u.cyclomatic - bCyc.m) / Math.max(bCyc.s, 1);
+    u.reasons = [];
+    if (zl > 2) u.reasons.push(`size ${u.loc} LOC is ${zl.toFixed(1)}σ above baseline`);
+    if (zc > 2) u.reasons.push(`cyclomatic ${u.cyclomatic} is ${zc.toFixed(1)}σ above baseline`);
+    u.deviation = devFromZ(Math.max(zl, zc));
+  }
+
+  for (const p of pkgs) {
+    p.efferent = p.imports.length;
+    p.instability = p.efferent / Math.max(1, p.efferent + p.afferent);
+    p.loc = p.units.reduce((s, u) => s + u.loc, 0);
+    p.meanCyclomatic = p.units.reduce((s, u) => s + u.cyclomatic, 0) / p.units.length;
+  }
+  const bEff = robust(pkgs.map(p => p.efferent));
+  const bCoh = robust(pkgs.map(p => p.cohesion));
+  const bPl = robust(pkgs.map(p => Math.log(p.loc)));
+  for (const p of pkgs) {
+    const ze = (p.efferent - bEff.m) / Math.max(bEff.s, 1);
+    const zc = (bCoh.m - p.cohesion) / Math.max(bCoh.s, 0.05);
+    const zl = (Math.log(p.loc) - bPl.m) / bPl.s;
+    p.reasons = [];
+    if (ze > 2) p.reasons.push(`imports ${p.efferent} packages (${ze.toFixed(1)}σ)`);
+    if (zc > 2) p.reasons.push(`cohesion ${p.cohesion.toFixed(2)} is ${zc.toFixed(1)}σ below baseline`);
+    if (zl > 2) p.reasons.push(`${p.loc} LOC (${zl.toFixed(1)}σ)`);
+    p.deviation = devFromZ(Math.max(ze, zc, zl));
+  }
+
+  const n = pkgs.length;
+  const edges = pkgs.reduce((s, p) => s + p.efferent, 0);
+  return {
+    schema: 'codeviz.scene/v0',
+    project,
+    language: 'go',
+    summary: {
+      packages: n,
+      units: units.length,
+      totalLoc: units.reduce((s, u) => s + u.loc, 0),
+      medianLoc: median(units.map(u => u.loc)),
+      medianCyclomatic: median(units.map(u => u.cyclomatic)),
+      importDensity: n > 1 ? edges / (n * (n - 1)) : 0,
+      meanInstability: pkgs.reduce((s, p) => s + p.instability, 0) / n,
+    },
+    packages: pkgs,
+  };
+}
+
+const PKG_NAMES = [
+  'cmd/codeviz', 'internal/domain', 'internal/app', 'internal/ports', 'internal/baseline',
+  'adapters/goparser', 'adapters/httpapi', 'adapters/store', 'internal/config', 'pkg/metrics',
+  'pkg/render', 'internal/events', 'internal/graph', 'pkg/scene',
+];
+const VERBS = ['Parse', 'Build', 'Load', 'Walk', 'Visit', 'Resolve', 'Compute', 'Emit', 'Merge', 'Score', 'Validate', 'Apply', 'Collect', 'Render', 'Encode'];
+const NOUNS = ['File', 'Package', 'Graph', 'Node', 'Metric', 'Edge', 'Scope', 'Import', 'Func', 'Baseline', 'Unit', 'Config', 'Scene', 'Span'];
+
+function synthScene(seed) {
+  const rnd = mulberry32(seed);
+  const gauss = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * rnd()); };
+  const pick = a => a[Math.floor(rnd() * a.length)];
+
+  const names = [...PKG_NAMES].sort(() => rnd() - 0.5).slice(0, 6 + Math.floor(rnd() * 7)).sort();
+  const pkgs = names.map(id => {
+    const nFn = 4 + Math.floor(rnd() * 12);
+    const units = [];
+    let line = 10;
+    for (let i = 0; i < nFn; i++) {
+      const loc = Math.max(3, Math.round(Math.exp(2.6 + 0.55 * gauss())));
+      const cyclomatic = Math.max(1, Math.round(1 + loc / 10 + gauss() * 1.1));
+      const file = id.split('/').pop() + (i < nFn / 2 ? '.go' : '_util.go');
+      units.push({ id: `${id}.${pick(VERBS)}${pick(NOUNS)}`, file, line, loc, cyclomatic });
+      line += loc + 3;
+    }
+    return { id, units, imports: [], cohesion: clamp(0.62 + gauss() * 0.08, 0.2, 0.95) };
+  });
+  // Acyclic imports (Go forbids cycles): only import packages later in order.
+  pkgs.forEach((p, i) => {
+    for (let j = i + 1; j < pkgs.length; j++) if (rnd() < 0.22) p.imports.push(pkgs[j].id);
+  });
+
+  // Plant a few anomalies so there is something to see.
+  const nAnom = 1 + Math.floor(rnd() * 3);
+  for (let k = 0; k < nAnom; k++) {
+    const kind = pick(['god', 'branchy', 'tangle', 'incoherent']);
+    const p = pick(pkgs);
+    if (kind === 'god') { const u = pick(p.units); u.loc = 220 + Math.floor(rnd() * 250); u.cyclomatic = 30 + Math.floor(rnd() * 25); }
+    if (kind === 'branchy') { const u = pick(p.units); u.cyclomatic = 18 + Math.floor(rnd() * 12); }
+    if (kind === 'tangle') { p.imports = pkgs.filter(q => q !== p && !q.imports.includes(p.id)).map(q => q.id); }
+    if (kind === 'incoherent') { p.cohesion = 0.15 + rnd() * 0.1; }
+  }
+  return buildScene(`synthetic-${seed}`, pkgs);
+}
+
+// Visual mapping: codebase summary → curve parameters.
+//   R ← overall scale (total LOC), r ← complexity granularity, d ← coupling depth.
+function shapeFromScene(scene) {
+  const s = scene.summary;
+  const R = Math.round(lerp(90, 230, smooth(2, 5.5, Math.log10(Math.max(100, s.totalLoc)))));
+  let p = clamp(Math.round(4 + s.medianCyclomatic * 2), 5, 18); // lobes: busier code → finer lobes
+  const q = s.packages > 9 ? 4 : 3;                               // weave passes
+  while (gcd(p, q) !== 1) p++;
+  const r = (R * q) / p;
+  const d = r * clamp(0.9 + s.importDensity * 5 + s.meanInstability * 0.6, 0.8, 2.4); // loopier when coupled
+  return { R, r: Math.round(r * 2) / 2, d: Math.round(d) };
+}
+
+// ─────────────────────────────────────────────────────────────
+// State + controls
+// ─────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const S = {
+  scene: null, source: '', seed: 7,
+  R: 150, r: 55, d: 60, res: 900, lock: true,
+  strength: 1, span: 1.5,
+  lBorder: true, lStrap: true, lFill: true, lGhost: true, lStar: true, lCorners: true,
+  cBase: '#3fb5a8', cHot: '#ff5a2a', cGround: '#3a0e14',
+  highlight: null, // {kind:'unit'|'pkg', ref}
+};
+const RANGES = ['R', 'r', 'd', 'res', 'strength', 'span'];
+const CHECKS = ['lock', 'lBorder', 'lStrap', 'lFill', 'lGhost', 'lStar', 'lCorners'];
+const COLORS = ['cBase', 'cHot', 'cGround'];
+
+function syncControls() {
+  for (const k of RANGES) { $(k).value = S[k]; $(k).nextElementSibling.value = (+S[k]).toFixed(k === 'strength' || k === 'span' ? 2 : 0); }
+  for (const k of CHECKS) $(k).checked = S[k];
+  for (const k of COLORS) $(k).value = S[k];
+}
+for (const k of RANGES) $(k).addEventListener('input', e => { S[k] = +e.target.value; e.target.nextElementSibling.value = S[k].toFixed(k === 'strength' || k === 'span' ? 2 : 0); schedule(); });
+for (const k of CHECKS) $(k).addEventListener('change', e => { S[k] = e.target.checked; schedule(); });
+for (const k of COLORS) $(k).addEventListener('input', e => { S[k] = e.target.value; schedule(); });
+
+function setScene(scene, source) {
+  if (!scene || !Array.isArray(scene.packages)) throw new Error('Not a codeviz scene: missing packages[]');
+  S.scene = scene; S.source = source;
+  document.title = `CodeViz · ${scene.project || source}`;
+  Object.assign(S, shapeFromScene(scene));
+  $('srcName').textContent = `${source} — ${scene.summary.packages} packages, ${scene.summary.units} functions, ${scene.summary.totalLoc.toLocaleString()} LOC`;
+  renderAnomalyList();
+  syncControls();
+  schedule();
+}
+
+$('btnNew').onclick = () => { S.seed = (Math.random() * 1e9) | 0; setScene(synthScene(S.seed), `synthetic #${S.seed}`); };
+$('btnFromData').onclick = () => { Object.assign(S, shapeFromScene(S.scene)); syncControls(); schedule(); };
+$('btnShuffle').onclick = () => {
+  S.R = 80 + Math.round(Math.random() * 150);
+  S.r = Math.round((10 + Math.random() * (S.R * 0.8)) * 2) / 2;
+  S.d = Math.round(Math.random() * S.R);
+  syncControls(); schedule();
+};
+$('btnLoad').onclick = () => $('file').click();
+$('file').onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; };
+function loadFile(f) {
+  f.text().then(t => setScene(JSON.parse(t), f.name)).catch(err => alert('Could not load scene: ' + err.message));
+}
+let dragDepth = 0;
+addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('drop').style.display = 'grid'; });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('drop').style.display = 'none'; } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; $('drop').style.display = 'none';
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function renderAnomalyList() {
+  const items = [];
+  for (const p of S.scene.packages) {
+    if (p.deviation > 0.02) items.push({ kind: 'pkg', ref: p, dev: p.deviation, label: p.id + ' (pkg)' });
+    for (const u of p.units) if (u.deviation > 0.02) items.push({ kind: 'unit', ref: u, dev: u.deviation, label: u.id });
+  }
+  items.sort((a, b) => b.dev - a.dev);
+  const ol = $('anoms');
+  ol.innerHTML = '';
+  if (!items.length) { ol.innerHTML = '<li class="d">Nothing deviates — the tile is whole.</li>'; return; }
+  for (const it of items.slice(0, 8)) {
+    const li = document.createElement('li');
+    li.innerHTML = `${escapeHtml(it.label)} <span class="d">${it.dev.toFixed(2)}</span>`;
+    li.onmouseenter = () => { S.highlight = it; schedule(); };
+    li.onmouseleave = () => { S.highlight = null; schedule(); };
+    ol.appendChild(li);
+  }
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
+// ─────────────────────────────────────────────────────────────
+// Rendering
+// ─────────────────────────────────────────────────────────────
+const cv = $('cv');
+let hit = { pts: null, cx: 0, cy: 0, H: 0, pkgs: [], scale: 1 };
+let pending = false;
+function schedule() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } }
+
+function layoutCanvas() {
+  const main = cv.parentElement;
+  const size = Math.max(280, Math.min(main.clientWidth - 32, main.clientHeight - 32 || 9999, 1100));
+  const dpr = window.devicePixelRatio || 1;
+  cv.style.width = cv.style.height = size + 'px';
+  cv.width = cv.height = Math.round(size * dpr);
+  return { size, dpr };
+}
+
+function draw() {
+  const { size, dpr } = layoutCanvas();
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  hit = renderTile(ctx, size, S, true);
+  const sh = effectiveShape(S);
+  $('fold').textContent = `${sh.p}-fold · ${sh.q} turn${sh.q > 1 ? 's' : ''}${S.lock ? '' : ' (approx.)'}`;
+}
+
+// Tile geometry proportions (fractions of the half-size H).
+const G = { ringOut: 0.955, ringIn: 0.815, laneOut: 0.795, laneIn: 0.735, disc: 0.715, curve: 0.65, star: 0.13 };
+
+function renderTile(ctx, size, st, collectHits) {
+  const H = size / 2, cx = H, cy = H;
+  const P = {
+    base: hex2rgb(st.cBase),
+    hot: hex2rgb(st.cHot),
+    ground: hex2rgb(st.cGround),
+    cream: [240, 226, 196],
+    gold: [214, 168, 92],
+    lapis: [14, 38, 48],
+  };
+  const lw = size / 900; // line-width unit
+  const scene = st.scene;
+  const pkgs = scene.packages;
+
+  // Ground
+  ctx.save();
+  const g = ctx.createRadialGradient(cx, cy, H * 0.2, cx, cy, H * 1.45);
+  g.addColorStop(0, rgba(mix(P.ground, [255, 255, 255], 0.06)));
+  g.addColorStop(1, rgba(mix(P.ground, [0, 0, 0], 0.45)));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+
+  if (st.lCorners) drawCorners(ctx, size, H, P, lw);
+
+  // Square frame
+  ctx.strokeStyle = rgba(P.gold, 0.55);
+  ctx.lineWidth = 1.2 * lw;
+  ctx.strokeRect(size * 0.012, size * 0.012, size * 0.976, size * 0.976);
+  ctx.strokeRect(size * 0.022, size * 0.022, size * 0.956, size * 0.956);
+
+  // Package angles: equal sectors so only deviation breaks symmetry.
+  const n = pkgs.length;
+  const a0 = -Math.PI / 2;
+  const pkgAngle = i => a0 + (i + 0.5) * TAU / n;
+
+  // Medallion disc with scalloped rim
+  const shape = effectiveShape(st);
+  const lobes = shape.p;
+  ctx.beginPath();
+  const scal = Math.max(lobes * 2, 12);
+  for (let i = 0; i <= 720; i++) {
+    const a = (i / 720) * TAU;
+    const rr = H * G.disc * (1 - 0.018 * (1 - Math.abs(Math.cos(a * scal / 2))));
+    const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+  const dg = ctx.createRadialGradient(cx, cy, 0, cx, cy, H * G.disc);
+  dg.addColorStop(0, rgba(mix(P.lapis, P.base, 0.18)));
+  dg.addColorStop(1, rgba(P.lapis));
+  ctx.fillStyle = dg;
+  ctx.fill();
+  ctx.strokeStyle = rgba(P.gold, 0.8);
+  ctx.lineWidth = 1.6 * lw;
+  ctx.stroke();
+
+  // Faint guide rosette inside disc (concentric rings + rays)
+  ctx.strokeStyle = rgba(P.cream, 0.06);
+  ctx.lineWidth = lw;
+  for (let k = 1; k <= 3; k++) { ctx.beginPath(); ctx.arc(cx, cy, H * G.disc * k / 3.4, 0, TAU); ctx.stroke(); }
+  for (let i = 0; i < lobes * 2; i++) {
+    const a = a0 + (i / (lobes * 2)) * TAU;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * H * G.disc * 0.97, cy + Math.sin(a) * H * G.disc * 0.97); ctx.stroke();
+  }
+
+  // Import strapwork: each edge runs as an arc in its own concentric lane
+  // between the medallion and the border, the short way round.
+  if (st.lStrap && n > 1) {
+    const idx = new Map(pkgs.map((p, i) => [p.id, i]));
+    const edges = [];
+    pkgs.forEach((p, i) => (p.imports || []).forEach(imp => { const j = idx.get(imp); if (j !== undefined && j !== i) edges.push([i, j, p]); }));
+    const lanes = Math.max(1, edges.length);
+    edges.forEach(([i, j, p], e) => {
+      const rr = H * lerp(G.laneIn, G.laneOut, lanes > 1 ? e / (lanes - 1) : 0.5);
+      let ai = pkgAngle(i), aj = pkgAngle(j);
+      let da = aj - ai; da = ((da + Math.PI) % TAU + TAU) % TAU - Math.PI;
+      const t = (p.deviation || 0) * Math.min(1, st.strength);
+      const col = mix(P.gold, P.hot, smooth(0, 0.7, t));
+      ctx.beginPath(); ctx.arc(cx, cy, rr, ai, ai + da, da < 0);
+      ctx.strokeStyle = rgba(col, 0.06 + 0.22 * Math.min(1, 40 / lanes) + 0.6 * t);
+      ctx.lineWidth = (0.8 + 1.2 * t) * lw; ctx.stroke();
+      for (const a of [ai, ai + da]) {
+        ctx.beginPath(); ctx.arc(cx + rr * Math.cos(a), cy + rr * Math.sin(a), 1.6 * lw, 0, TAU);
+        ctx.fillStyle = rgba(col, 0.8); ctx.fill();
+      }
+    });
+  }
+
+  // Main hypotrochoid — function-level detail.
+  const pts = sampleCurve(st, shape, cx, cy, H * G.curve);
+  if (st.lFill) fillCurve(ctx, pts, P);
+  // Baseline ghost: the same curve with no deviation applied — the shape
+  // this codebase "should" have. Anomalies visibly pull away from it.
+  if (st.lGhost) {
+    const ghost = sampleCurve({ ...st, strength: 0 }, shape, cx, cy, H * G.curve);
+    ctx.beginPath();
+    ghost.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.strokeStyle = rgba(P.gold, 0.45); ctx.lineWidth = 0.8 * lw;
+    ctx.setLineDash([2 * lw, 3 * lw]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  drawCurve(ctx, pts, st, P, lw);
+
+  if (st.lStar) drawStar(ctx, cx, cy, H * G.star, lobes, P, lw, a0);
+
+  // Package border ring
+  if (st.lBorder) drawBorder(ctx, cx, cy, H, pkgs, pkgAngle, st, P, lw);
+
+  // Highlight marker
+  if (st.highlight) drawHighlight(ctx, st.highlight, pts, pkgs, pkgAngle, cx, cy, H, P, lw);
+
+  ctx.restore();
+  return collectHits ? { pts, cx, cy, H, pkgs, pkgAngle } : null;
+}
+
+function effectiveShape(st) {
+  const R = st.R;
+  let r = Math.min(st.r, R * 0.97);
+  let { p, q } = rational(R / r, st.lock ? 4 : 24);
+  if (st.lock) {
+    p = Math.max(p, q + 1);
+    r = (R * q) / p;
+  }
+  const g = gcd(p, q);
+  p /= g; q /= g;
+  return { R, r, d: st.d, p, q, turns: q };
+}
+
+// Lay units along the parameter range, weighted by sqrt(LOC).
+function unitWindows(scene, T) {
+  const units = scene.packages.flatMap(p => p.units.map(u => ({ u, p })));
+  const w = units.map(x => Math.sqrt(Math.max(1, x.u.loc)));
+  const total = w.reduce((a, b) => a + b, 0) || 1;
+  let acc = 0;
+  return units.map((x, i) => {
+    const t0 = (acc / total) * T; acc += w[i];
+    const t1 = (acc / total) * T;
+    return { ...x, t0, t1, tc: (t0 + t1) / 2, dev: x.u.deviation || 0 };
+  });
+}
+
+function sampleCurve(st, shape, cx, cy, fitR) {
+  const { R, r, d, q } = shape;
+  const T = TAU * q;
+  const N = Math.max(200, Math.round(st.res * q));
+  const k = (R - r) / r;
+  const extent = Math.abs(R - r) + d;
+  const scale = (fitR * lerp(0.8, 1, smooth(60, 240, R))) / Math.max(extent, 1e-6);
+
+  const wins = unitWindows(st.scene, T);
+  const hot = wins.filter(w => w.dev > 0.02).map(w => ({
+    ...w, half: Math.max((w.t1 - w.t0) / 2, T * 0.008) * st.span,
+  }));
+  const S0 = st.strength;
+  const pts = new Array(N + 1);
+  let wi = 0;
+
+  for (let i = 0; i <= N; i++) {
+    let t = (i / N) * T;
+    // Anomaly envelope at t (sum of raised-cosine bumps, wrapping around T).
+    let e = 0;
+    for (const h of hot) {
+      let dt = Math.abs(t - h.tc); dt = Math.min(dt, T - dt);
+      if (dt < h.half) e += h.dev * 0.5 * (1 + Math.cos(Math.PI * dt / h.half));
+    }
+    e = Math.min(e, 1.2);
+    const a = e * S0;
+
+    // Broken smoothness: quantize t so the polyline turns jagged.
+    if (a > 0.25) { const step = (T / N) * (1 + 14 * (a - 0.25)); t = Math.round(t / step) * step; }
+    // Phase + offset jitter.
+    const tp = t + 0.5 * a * vnoise(t * 3.1, 5);
+    const dd = d * (1 + 0.7 * a * vnoise(t * 4.7, 2));
+    let x = (R - r) * Math.cos(tp) + dd * Math.cos(k * tp);
+    let y = (R - r) * Math.sin(tp) - dd * Math.sin(k * tp);
+    // Radial jitter.
+    const rj = 1 + 0.26 * a * vnoise(t * 9.3, 1);
+    x *= rj; y *= rj;
+    // Discontinuities at extreme deviation.
+    const gap = a > 0.85 && hash1(Math.floor(t * 14) + 3.7) < (a - 0.85) * 0.9;
+
+    while (wi < wins.length - 1 && (i / N) * T > wins[wi].t1) wi++;
+    pts[i] = { x: cx + x * scale, y: cy + y * scale, e: Math.min(1, e * Math.min(1, S0 * 1.4)), gap, w: wins[wi] };
+  }
+  return pts;
+}
+
+// Tile fill: even-odd fill of the self-intersecting curve gives the
+// checkered interlace cells of a girih medallion.
+function fillCurve(ctx, pts, P) {
+  const path = new Path2D();
+  pts.forEach((p, i) => (i ? path.lineTo(p.x, p.y) : path.moveTo(p.x, p.y)));
+  path.closePath();
+  ctx.fillStyle = rgba(P.base, 0.2);
+  ctx.fill(path, 'evenodd');
+}
+
+function drawCurve(ctx, pts, st, P, lw) {
+
+  // Batch contiguous samples by colour bucket.
+  const BUCKETS = 16;
+  const runs = [];
+  let cur = null;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (b.gap) { cur = null; continue; }
+    const bucket = Math.round(Math.max(a.e, b.e) * BUCKETS);
+    if (!cur || cur.bucket !== bucket) { cur = { bucket, pts: [a] }; runs.push(cur); }
+    cur.pts.push(b);
+  }
+  const stroke = (run, style, width) => {
+    ctx.beginPath();
+    run.pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.strokeStyle = style; ctx.lineWidth = width; ctx.stroke();
+  };
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  // Pass 1: dark cuerda-seca outline.
+  for (const run of runs) {
+    const t = run.bucket / BUCKETS;
+    stroke(run, rgba(mix(P.ground, [0, 0, 0], 0.5), 0.9), (3.6 + 3 * t) * lw);
+  }
+  // Pass 2: glow for anomalies.
+  ctx.save();
+  for (const run of runs) {
+    const t = run.bucket / BUCKETS;
+    if (t < 0.15) continue;
+    ctx.shadowColor = rgba(P.hot, 0.9); ctx.shadowBlur = 14 * lw * t;
+    stroke(run, rgba(P.hot, 0.35 * t), (4 + 4 * t) * lw);
+  }
+  ctx.restore();
+  // Pass 3: colour line.
+  for (const run of runs) {
+    const t = run.bucket / BUCKETS;
+    stroke(run, rgba(mix(P.base, P.hot, smooth(0, 0.7, t))), (1.8 + 1.4 * t) * lw);
+  }
+  // Pass 4: cream inlay on clean runs only.
+  for (const run of runs) {
+    if (run.bucket / BUCKETS > 0.1) continue;
+    stroke(run, rgba(P.cream, 0.5), 0.55 * lw);
+  }
+}
+
+function starPath(ctx, cx, cy, R, points, inner, rot) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const a = rot + (i / (points * 2)) * TAU;
+    const rr = i % 2 ? R * inner : R;
+    const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function drawStar(ctx, cx, cy, R, points, P, lw, rot) {
+  const n = clamp(points, 5, 16);
+  starPath(ctx, cx, cy, R, n, 0.52, rot);
+  ctx.fillStyle = rgba(mix(P.lapis, P.base, 0.55));
+  ctx.fill();
+  ctx.strokeStyle = rgba(P.gold, 0.9); ctx.lineWidth = 1.4 * lw; ctx.stroke();
+  starPath(ctx, cx, cy, R * 0.55, n, 0.6, rot + Math.PI / n);
+  ctx.fillStyle = rgba(P.ground); ctx.fill();
+  ctx.strokeStyle = rgba(P.cream, 0.7); ctx.lineWidth = lw; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, R * 0.12, 0, TAU);
+  ctx.fillStyle = rgba(P.gold); ctx.fill();
+}
+
+function drawBorder(ctx, cx, cy, H, pkgs, pkgAngle, st, P, lw) {
+  const n = pkgs.length;
+  const rIn = H * G.ringIn, rOut = H * G.ringOut, rMid = (rIn + rOut) / 2, band = rOut - rIn;
+
+  // Band ground
+  ctx.beginPath(); ctx.arc(cx, cy, rOut, 0, TAU); ctx.arc(cx, cy, rIn, 0, TAU, true);
+  ctx.fillStyle = rgba(mix(P.ground, [0, 0, 0], 0.25)); ctx.fill('evenodd');
+
+  // Bead rings
+  for (const [rr, count] of [[rIn - band * 0.08, 96], [rOut + band * 0.08, 120]]) {
+    ctx.fillStyle = rgba(P.gold, 0.7);
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * TAU;
+      ctx.beginPath(); ctx.arc(cx + rr * Math.cos(a), cy + rr * Math.sin(a), 1.3 * lw, 0, TAU); ctx.fill();
+    }
+  }
+  ctx.strokeStyle = rgba(P.gold, 0.85); ctx.lineWidth = 1.3 * lw;
+  for (const rr of [rIn, rOut]) { ctx.beginPath(); ctx.arc(cx, cy, rr, 0, TAU); ctx.stroke(); }
+
+  const sector = TAU / n;
+  // Too many packages for ornate cartouches: fall back to plain wedges.
+  const compact = sector * rMid < band * 1.4;
+  for (let i = 0; i < n; i++) {
+    const p = pkgs[i];
+    const dev = (p.deviation || 0);
+    const a = Math.min(1.2, dev * st.strength);
+    const t = smooth(0, 0.7, Math.min(1, a));
+    const ac = pkgAngle(i);
+    const col = mix(P.base, P.hot, t);
+    const aS = ac - sector / 2, aE = ac + sector / 2;
+
+    if (compact) {
+      const aa = aS + sector * 0.06, ab = aE - sector * 0.06;
+      const r1 = rIn + band * 0.12, r2 = rOut - band * 0.12;
+      ctx.beginPath(); ctx.arc(cx, cy, r2, aa, ab); ctx.arc(cx, cy, r1, ab, aa, true); ctx.closePath();
+      ctx.fillStyle = rgba(mix(P.lapis, col, 0.3 + 0.5 * t)); ctx.fill();
+      ctx.strokeStyle = rgba(mix(P.gold, P.hot, t), 0.35 + 0.6 * t); ctx.lineWidth = (0.6 + t) * lw; ctx.stroke();
+      if (a > 0.2) {
+        ctx.beginPath(); ctx.arc(cx + rMid * Math.cos(ac), cy + rMid * Math.sin(ac), band * (0.08 + 0.12 * t), 0, TAU);
+        ctx.fillStyle = rgba(P.hot, 0.5 + 0.5 * t); ctx.fill();
+      }
+      continue;
+    }
+
+    // Divider lozenge at sector start
+    const dx = cx + rMid * Math.cos(aS), dy = cy + rMid * Math.sin(aS);
+    ctx.save(); ctx.translate(dx, dy); ctx.rotate(aS);
+    ctx.beginPath(); ctx.moveTo(-band * 0.42, 0); ctx.lineTo(0, band * 0.1); ctx.lineTo(band * 0.42, 0); ctx.lineTo(0, -band * 0.1); ctx.closePath();
+    ctx.fillStyle = rgba(P.gold, 0.85); ctx.fill();
+    ctx.restore();
+
+    // Cartouche: arched panel spanning the sector
+    const pad = sector * 0.09, aa = aS + pad, ab = aE - pad;
+    const r1 = rIn + band * 0.16, r2 = rOut - band * 0.16;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r2, aa, ab);
+    const capR = (r2 - r1) / 2;
+    const ex = cx + (r1 + capR) * Math.cos(ab), ey = cy + (r1 + capR) * Math.sin(ab);
+    ctx.arc(ex, ey, capR, ab, ab + Math.PI);
+    ctx.arc(cx, cy, r1, ab, aa, true);
+    const sx = cx + (r1 + capR) * Math.cos(aa), sy = cy + (r1 + capR) * Math.sin(aa);
+    ctx.arc(sx, sy, capR, aa + Math.PI, aa + TAU);
+    ctx.closePath();
+    ctx.fillStyle = rgba(mix(P.lapis, col, 0.25 + 0.2 * t));
+    ctx.fill();
+    ctx.setLineDash(a > 0.5 ? [6 * lw, (3 + 8 * (a - 0.5)) * lw] : []);
+    ctx.strokeStyle = rgba(mix(P.gold, P.hot, t), 0.9); ctx.lineWidth = (1 + t) * lw; ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Vine: sinusoid along the arc; deviation adds jitter & breaks it.
+    const waves = 3 + Math.round(Math.min(6, (p.units || []).length / 3));
+    ctx.beginPath();
+    const M = 160;
+    let pen = false;
+    for (let k = 0; k <= M; k++) {
+      const u = k / M;
+      const ang = lerp(aa + pad * 0.6, ab - pad * 0.6, u);
+      const jit = a * vnoise(u * 18 + i * 7, 3) * 0.6;
+      const rr = rMid + (r2 - r1) * 0.32 * (Math.sin(u * waves * TAU) + jit);
+      const x = cx + rr * Math.cos(ang), y = cy + rr * Math.sin(ang);
+      const broken = a > 0.8 && hash1(Math.floor(u * 22) + i * 13) < (a - 0.8);
+      if (broken) { pen = false; continue; }
+      pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true;
+    }
+    ctx.strokeStyle = rgba(mix(P.cream, P.hot, t), 0.75); ctx.lineWidth = (0.9 + 0.6 * t) * lw; ctx.stroke();
+
+    // Rosette at sector centre: mini hypotrochoid, lobes from package complexity.
+    const lobes = clamp(Math.round(3 + (p.meanCyclomatic || 2)), 4, 12);
+    const rx = cx + rMid * Math.cos(ac), ry = cy + rMid * Math.sin(ac);
+    const Rm = band * 0.3, rm = Rm / lobes, dm = rm * 1.6;
+    ctx.beginPath();
+    for (let k = 0; k <= 240; k++) {
+      const tt = (k / 240) * TAU;
+      const j = 1 + 0.35 * a * vnoise(tt * 6 + i, 4);
+      const x = ((Rm - rm) * Math.cos(tt) + dm * Math.cos(((Rm - rm) / rm) * tt)) * j;
+      const y = ((Rm - rm) * Math.sin(tt) - dm * Math.sin(((Rm - rm) / rm) * tt)) * j;
+      const scale = (band * 0.34) / (Rm - rm + dm);
+      k ? ctx.lineTo(rx + x * scale, ry + y * scale) : ctx.moveTo(rx + x * scale, ry + y * scale);
+    }
+    ctx.closePath();
+    ctx.fillStyle = rgba(mix(P.lapis, P.ground, 0.4)); ctx.fill();
+    ctx.strokeStyle = rgba(col); ctx.lineWidth = (1.1 + t) * lw; ctx.stroke();
+    ctx.beginPath(); ctx.arc(rx, ry, band * 0.05, 0, TAU); ctx.fillStyle = rgba(mix(P.gold, P.hot, t)); ctx.fill();
+  }
+}
+
+function drawCorners(ctx, size, H, P, lw) {
+  for (const [x, y] of [[0, 0], [size, 0], [0, size], [size, size]]) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, size, size); ctx.clip();
+    for (const [rr, pts, inner, alpha] of [[H * 0.4, 8, 0.55, 0.25], [H * 0.28, 8, 0.5, 0.4], [H * 0.15, 8, 0.45, 0.55]]) {
+      starPath(ctx, x, y, rr, pts, inner, Math.PI / 8);
+      ctx.fillStyle = rgba(mix(P.ground, P.base, 0.12 * alpha));
+      ctx.fill();
+      ctx.strokeStyle = rgba(P.gold, alpha * 0.6); ctx.lineWidth = lw; ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawHighlight(ctx, hl, pts, pkgs, pkgAngle, cx, cy, H, P, lw) {
+  ctx.save();
+  ctx.strokeStyle = rgba(P.cream, 0.95); ctx.lineWidth = 1.5 * lw; ctx.setLineDash([4 * lw, 3 * lw]);
+  if (hl.kind === 'unit') {
+    const own = pts.filter(p => p.w && p.w.u === hl.ref);
+    if (own.length) {
+      const m = own[own.length >> 1];
+      ctx.beginPath(); ctx.arc(m.x, m.y, 18 * lw, 0, TAU); ctx.stroke();
+    }
+  } else {
+    const i = pkgs.indexOf(hl.ref);
+    const a = pkgAngle(i), rr = H * (G.ringIn + G.ringOut) / 2;
+    ctx.beginPath(); ctx.arc(cx + rr * Math.cos(a), cy + rr * Math.sin(a), H * 0.1, 0, TAU); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Hover inspector
+// ─────────────────────────────────────────────────────────────
+cv.addEventListener('mousemove', e => {
+  const rect = cv.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const tip = $('tip');
+  let html = null;
+  if (hit.pts) {
+    let best = null, bd = 12 * 12;
+    for (const p of hit.pts) {
+      const dx = p.x - mx, dy = p.y - my, d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; best = p; }
+    }
+    if (best && best.w) {
+      const u = best.w.u;
+      html = `<b>${escapeHtml(u.id)}</b><span class="m">${escapeHtml(best.w.p.id)} · ${escapeHtml(u.file || '')}${u.line ? ':' + u.line : ''}<br>` +
+        `${u.loc} LOC · cyclomatic ${u.cyclomatic} · deviation ${(u.deviation || 0).toFixed(2)}</span>` +
+        (u.reasons || []).map(r => `<div class="r">${escapeHtml(r)}</div>`).join('');
+    } else if (S.lBorder) {
+      const dx = mx - hit.cx, dy = my - hit.cy, rr = Math.hypot(dx, dy);
+      if (rr > hit.H * G.ringIn && rr < hit.H * G.ringOut) {
+        const n = hit.pkgs.length;
+        let a = Math.atan2(dy, dx) + Math.PI / 2; if (a < 0) a += TAU;
+        const p = hit.pkgs[Math.floor(a / (TAU / n)) % n];
+        html = `<b>${escapeHtml(p.id)}</b><span class="m">package · ${p.units.length} funcs · ${p.loc} LOC<br>` +
+          `imports ${p.efferent} · imported by ${p.afferent} · instability ${(+p.instability).toFixed(2)} · cohesion ${(+p.cohesion).toFixed(2)}<br>` +
+          `deviation ${(p.deviation || 0).toFixed(2)}</span>` +
+          (p.reasons || []).map(r => `<div class="r">${escapeHtml(r)}</div>`).join('');
+      }
+    }
+  }
+  if (html) {
+    tip.innerHTML = html; tip.style.display = 'block';
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 330) + 'px';
+    tip.style.top = (e.clientY + 14) + 'px';
+  } else tip.style.display = 'none';
+});
+cv.addEventListener('mouseleave', () => { $('tip').style.display = 'none'; });
+
+// ─────────────────────────────────────────────────────────────
+// Export
+// ─────────────────────────────────────────────────────────────
+$('btnPng').onclick = () => {
+  const size = 2400;
+  const off = document.createElement('canvas');
+  off.width = off.height = size;
+  renderTile(off.getContext('2d'), size, S, false);
+  const a = document.createElement('a');
+  a.download = `codeviz-${(S.scene.project || 'scene').replace(/[^\w.-]+/g, '_')}.png`;
+  a.href = off.toDataURL('image/png');
+  a.click();
+};
+
+addEventListener('resize', schedule);
+syncControls();
+// A scene injected by the codeviz CLI wins over synthetic data.
+const embedded = JSON.parse($('codeviz-scene').textContent);
+const qsSeed = +new URLSearchParams(location.search).get('seed');
+if (qsSeed) S.seed = qsSeed;
+if (embedded) setScene(embedded, embedded.project || 'embedded scene');
+else setScene(synthScene(S.seed), `synthetic #${S.seed}`);
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+# codeviz default outputs
+/codeviz.html
+/codeviz.scene.json
+
+# built binary
+/codeviz

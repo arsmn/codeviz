@@ -1,0 +1,40 @@
+{
+  "schema": "codeviz.scene/v0",
+  "project": "tiny-example",
+  "language": "go",
+  "summary": {
+    "packages": 3, "units": 7, "totalLoc": 368,
+    "medianLoc": 14, "medianCyclomatic": 3,
+    "importDensity": 0.5, "meanInstability": 0.5
+  },
+  "packages": [
+    {
+      "id": "cmd/app", "loc": 38, "afferent": 0, "efferent": 2, "instability": 1,
+      "cohesion": 0.7, "meanCyclomatic": 2, "imports": ["internal/app", "internal/domain"],
+      "deviation": 0, "reasons": [],
+      "units": [
+        { "id": "cmd/app.main", "file": "main.go", "line": 8, "loc": 24, "cyclomatic": 3, "deviation": 0, "reasons": [] },
+        { "id": "cmd/app.parseFlags", "file": "main.go", "line": 35, "loc": 14, "cyclomatic": 1, "deviation": 0, "reasons": [] }
+      ]
+    },
+    {
+      "id": "internal/app", "loc": 290, "afferent": 1, "efferent": 1, "instability": 0.5,
+      "cohesion": 0.6, "meanCyclomatic": 13.3, "imports": ["internal/domain"],
+      "deviation": 0.35, "reasons": ["290 LOC (2.9σ)"],
+      "units": [
+        { "id": "internal/app.(*Service).Run", "file": "service.go", "line": 12, "loc": 260, "cyclomatic": 34, "deviation": 0.95, "reasons": ["size 260 LOC is 6.1σ above baseline", "cyclomatic 34 is 9.8σ above baseline"] },
+        { "id": "internal/app.NewService", "file": "service.go", "line": 4, "loc": 10, "cyclomatic": 1, "deviation": 0, "reasons": [] },
+        { "id": "internal/app.(*Service).Close", "file": "service.go", "line": 280, "loc": 20, "cyclomatic": 5, "deviation": 0, "reasons": [] }
+      ]
+    },
+    {
+      "id": "internal/domain", "loc": 40, "afferent": 2, "efferent": 0, "instability": 0,
+      "cohesion": 0.8, "meanCyclomatic": 2.5, "imports": [],
+      "deviation": 0, "reasons": [],
+      "units": [
+        { "id": "internal/domain.(*Metric).Score", "file": "metric.go", "line": 10, "loc": 22, "cyclomatic": 4, "deviation": 0, "reasons": [] },
+        { "id": "internal/domain.NewMetric", "file": "metric.go", "line": 3, "loc": 18, "cyclomatic": 1, "deviation": 0, "reasons": [] }
+      ]
+    }
+  ]
+}
