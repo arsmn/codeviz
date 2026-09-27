@@ -31,9 +31,16 @@ func main() {
 		if !errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintln(os.Stderr, "codeviz:", err)
 		}
+		if errors.Is(err, errBelowMinScore) {
+			os.Exit(1)
+		}
 		os.Exit(2)
 	}
 }
+
+// errBelowMinScore fails a quality gate (exit 1), as opposed to a usage or
+// analysis error (exit 2).
+var errBelowMinScore = errors.New("score below -min-score")
 
 type options struct {
 	out       string
@@ -43,6 +50,7 @@ type options struct {
 	open      bool
 	top       int
 	quiet     bool
+	minScore  float64
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
@@ -56,6 +64,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.BoolVar(&o.open, "open", false, "open the result in a browser")
 	fs.IntVar(&o.top, "top", 5, "number of most-deviant functions and packages to list")
 	fs.BoolVar(&o.quiet, "q", false, "print nothing but errors")
+	fs.Float64Var(&o.minScore, "min-score", 0, "exit with status 1 if the overall score (0–100) is below this; the output is still written")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Usage: codeviz [flags] [path]\n\nRenders the Go code under path (default \".\") as a medallion.\n\nFlags:\n")
 		fs.PrintDefaults()
@@ -82,6 +91,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		root = positional[0]
 	}
 
+	if o.minScore < 0 || o.minScore > 100 {
+		return fmt.Errorf("-min-score must be between 0 and 100, got %g", o.minScore)
+	}
 	renderer, err := pickRenderer(&o)
 	if err != nil {
 		return err
@@ -108,7 +120,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 		report(stderr, a, o)
 	}
 	if o.open && o.out != "-" {
-		return openBrowser(o.out)
+		if err := openBrowser(o.out); err != nil {
+			return err
+		}
+	}
+	if total := a.Summary.Score.Total; total < o.minScore {
+		return fmt.Errorf("%w: %.1f < %g", errBelowMinScore, total, o.minScore)
 	}
 	return nil
 }
@@ -163,6 +180,7 @@ func report(w io.Writer, a domain.Analysis, o options) {
 	}
 	fmt.Fprintf(w, "%s: %d packages, %d functions, %d LOC (median function: %g LOC, cyclomatic %g) → %s\n",
 		a.Name, s.Packages, s.Units, s.TotalLOC, s.MedianLOC, s.MedianCyclomatic, dest)
+	reportScore(w, s.Score)
 	if o.top <= 0 {
 		return
 	}
@@ -206,6 +224,13 @@ func report(w io.Writer, a domain.Analysis, o options) {
 		for _, r := range it.score.Reasons {
 			fmt.Fprintf(w, "        %s\n", r)
 		}
+	}
+}
+
+func reportScore(w io.Writer, sc domain.OverallScore) {
+	fmt.Fprintf(w, "Score %.0f/100   harmony %.0f · health %.0f\n", sc.Total, sc.Harmony, sc.Health)
+	for _, c := range sc.Components {
+		fmt.Fprintf(w, "  %-10s %3.0f  %s\n", c.Name, c.Value, c.Detail)
 	}
 }
 

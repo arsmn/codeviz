@@ -114,6 +114,7 @@ func Analyze(cb Codebase) Analysis {
 
 	scoreUnits(out, summary, robustOf(logUnitLOC, floorLogLOC), robustOf(logUnitCyc, floorLogCyclo))
 	scorePackages(out)
+	summary.Score = overallScore(out)
 
 	return Analysis{Name: cb.Name, Language: cb.Language, Summary: summary, Packages: out}
 }

@@ -28,6 +28,23 @@ type Summary struct {
 	MedianCyclomatic float64 `json:"medianCyclomatic"`
 	ImportDensity    float64 `json:"importDensity"`
 	MeanInstability  float64 `json:"meanInstability"`
+	Score            *Score  `json:"score,omitempty"` // optional in v0
+}
+
+// Score is the overall 0–100 rating: half harmony, half health.
+type Score struct {
+	Total      float64     `json:"total"`
+	Harmony    float64     `json:"harmony"`
+	Health     float64     `json:"health"`
+	Components []Component `json:"components"`
+}
+
+type Component struct {
+	Name   string  `json:"name"`
+	Group  string  `json:"group"`
+	Value  float64 `json:"value"`
+	Weight float64 `json:"weight"`
+	Detail string  `json:"detail"`
 }
 
 type Package struct {
@@ -70,6 +87,7 @@ func From(a domain.Analysis) Scene {
 			MedianCyclomatic: round(a.Summary.MedianCyclomatic),
 			ImportDensity:    round(a.Summary.ImportDensity),
 			MeanInstability:  round(a.Summary.MeanInstability),
+			Score:            fromScore(a.Summary.Score),
 		},
 		Packages: make([]Package, 0, len(a.Packages)),
 	}
@@ -105,6 +123,14 @@ func From(a domain.Analysis) Scene {
 	return s
 }
 
+func fromScore(o domain.OverallScore) *Score {
+	s := &Score{Total: round1(o.Total), Harmony: round1(o.Harmony), Health: round1(o.Health), Components: []Component{}}
+	for _, c := range o.Components {
+		s.Components = append(s.Components, Component{Name: c.Name, Group: c.Group, Value: round1(c.Value), Weight: c.Weight, Detail: c.Detail})
+	}
+	return s
+}
+
 // JSON renders the scene as indented JSON.
 type JSON struct{}
 
@@ -115,6 +141,8 @@ func (JSON) Render(w io.Writer, a domain.Analysis) error {
 }
 
 func round(x float64) float64 { return math.Round(x*1e4) / 1e4 }
+
+func round1(x float64) float64 { return math.Round(x*10) / 10 }
 
 func nonNil(xs []string) []string {
 	if xs == nil {

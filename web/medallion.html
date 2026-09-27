@@ -55,6 +55,15 @@
   ol.anoms li { margin: 3px 0; cursor: default; }
   ol.anoms li:hover { color: var(--hot); }
   ol.anoms .d { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .score { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .score .big { font-size: 30px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  .score .of { color: var(--muted); margin-right: 8px; }
+  .score .split { color: var(--muted); font-size: 12px; }
+  .comps { display: grid; gap: 4px; margin-top: 8px; }
+  .comp { display: grid; grid-template-columns: 74px 1fr 28px; gap: 8px; align-items: center; font-size: 12px; cursor: help; }
+  .comp .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+  .comp .bar i { display: block; height: 100%; }
+  .comp .v { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
   main { position: relative; display: grid; place-items: center; padding: 16px; min-width: 0; }
   canvas { display: block; max-width: 100%; }
   #tip {
@@ -90,6 +99,11 @@
       <button id="btnLoad" title="Load a codeviz.scene/v0 JSON file (or drop one on the page)">Load JSON…</button>
       <input type="file" id="file" accept=".json,application/json" hidden>
     </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Score</legend>
+    <div id="score"></div>
   </fieldset>
 
   <fieldset>
@@ -268,9 +282,35 @@ function buildScene(project, pkgs) {
       medianCyclomatic: median(units.map(u => u.cyclomatic)),
       importDensity: n > 1 ? edges / (n * (n - 1)) : 0,
       meanInstability: pkgs.reduce((s, p) => s + p.instability, 0) / n,
+      score: sceneScore(pkgs),
     },
     packages: pkgs,
   };
+}
+
+// Stand-in overall score for synthetic data; mirrors internal/domain/score.go.
+function sceneScore(pkgs) {
+  const units = pkgs.flatMap(p => p.units);
+  const lin = (x, good, bad) => 100 * clamp((bad - x) / (bad - good), 0, 1);
+  const sum = (xs, f) => xs.reduce((s, x) => s + f(x), 0);
+  const uShare = sum(units, u => u.deviation * u.loc) / (sum(units, u => u.loc) || 1);
+  const pShare = sum(pkgs, p => p.deviation * p.loc) / (sum(pkgs, p => p.loc) || 1);
+  const harmony = 100 * clamp(1 - 2.5 * (0.7 * uShare + 0.3 * pShare), 0, 1);
+  const complex = units.filter(u => u.cyclomatic > 15).length / (units.length || 1);
+  const long = units.filter(u => u.loc > 60).length / (units.length || 1);
+  const fan = sum(pkgs, p => p.efferent) / pkgs.length;
+  const cohP = pkgs.filter(p => p.units.length >= 4);
+  const coh = cohP.length ? sum(cohP, p => p.cohesion) / cohP.length : 1;
+  const pct = x => (100 * x).toFixed(1) + '%';
+  const components = [
+    { name: 'harmony', group: 'harmony', weight: 1, value: harmony, detail: `deviation-weighted share of code outside the baseline: functions ${pct(uShare)}, packages ${pct(pShare)}` },
+    { name: 'complexity', group: 'health', weight: 0.35, value: lin(complex, 0.02, 0.15), detail: `${pct(complex)} of functions above cyclomatic 15` },
+    { name: 'size', group: 'health', weight: 0.25, value: lin(long, 0.03, 0.2), detail: `${pct(long)} of functions over 60 LOC` },
+    { name: 'coupling', group: 'health', weight: 0.2, value: lin(fan, 3, 12), detail: `packages import ${fan.toFixed(1)} others on average` },
+    { name: 'cohesion', group: 'health', weight: 0.2, value: lin(coh, 1, 0.5), detail: `mean cohesion ${coh.toFixed(2)} across ${cohP.length} packages with ≥4 functions` },
+  ];
+  const health = sum(components.filter(c => c.group === 'health'), c => c.weight * c.value);
+  return { total: 0.5 * harmony + 0.5 * health, harmony, health, components };
 }
 
 const PKG_NAMES = [
@@ -363,6 +403,7 @@ function setScene(scene, source) {
   Object.assign(S, shapeFromScene(scene));
   $('srcName').textContent = `${source} — ${scene.summary.packages} packages, ${scene.summary.units} functions, ${scene.summary.totalLoc.toLocaleString()} LOC`;
   renderAnomalyList();
+  renderScore();
   syncControls();
   schedule();
 }
@@ -388,6 +429,19 @@ addEventListener('drop', e => {
   e.preventDefault(); dragDepth = 0; $('drop').style.display = 'none';
   if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
 });
+
+function renderScore() {
+  const sc = S.scene.summary && S.scene.summary.score, el = $('score');
+  if (!sc) { el.innerHTML = '<span class="src">This scene has no score.</span>'; return; }
+  const color = v => (v >= 75 ? 'var(--accent)' : v >= 50 ? '#d6a85c' : 'var(--hot)');
+  el.innerHTML =
+    `<div class="score"><span class="big">${Math.round(sc.total)}</span><span class="of">/ 100</span>` +
+    `<span class="split">harmony ${Math.round(sc.harmony)} · health ${Math.round(sc.health)}</span></div>` +
+    `<div class="comps">` + (sc.components || []).map(c =>
+      `<div class="comp" title="${escapeHtml(c.detail)}"><span>${escapeHtml(c.name)}</span>` +
+      `<span class="bar"><i style="width:${clamp(+c.value, 0, 100)}%;background:${color(c.value)}"></i></span>` +
+      `<span class="v">${Math.round(c.value)}</span></div>`).join('') + `</div>`;
+}
 
 function renderAnomalyList() {
   const items = [];
@@ -476,23 +530,42 @@ function renderTile(ctx, size, st, collectHits) {
   // Medallion disc with scalloped rim
   const shape = effectiveShape(st);
   const lobes = shape.p;
-  ctx.beginPath();
   const scal = Math.max(lobes * 2, 12);
-  for (let i = 0; i <= 720; i++) {
-    const a = (i / 720) * TAU;
-    const rr = H * G.disc * (1 - 0.018 * (1 - Math.abs(Math.cos(a * scal / 2))));
-    const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a);
-    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-  }
+  const rimArc = (from, to) => {
+    const steps = Math.max(2, Math.ceil(720 * (to - from) / TAU));
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const a = from + (to - from) * (i / steps);
+      const rr = H * G.disc * (1 - 0.018 * (1 - Math.abs(Math.cos(a * scal / 2))));
+      const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+  };
+  rimArc(a0, a0 + TAU);
   ctx.closePath();
   const dg = ctx.createRadialGradient(cx, cy, 0, cx, cy, H * G.disc);
   dg.addColorStop(0, rgba(mix(P.lapis, P.base, 0.18)));
   dg.addColorStop(1, rgba(P.lapis));
   ctx.fillStyle = dg;
   ctx.fill();
-  ctx.strokeStyle = rgba(P.gold, 0.8);
-  ctx.lineWidth = 1.6 * lw;
-  ctx.stroke();
+
+  // The rim is the score ring: solid gold for the score's share of the
+  // circle (clockwise from the top), broken and hot for what's missing.
+  const score = scene.summary && scene.summary.score;
+  const frac = score ? clamp(score.total / 100, 0, 1) : 1;
+  const aBreak = a0 + frac * TAU;
+  rimArc(a0, aBreak);
+  ctx.strokeStyle = rgba(P.gold, 0.9); ctx.lineWidth = 2.4 * lw; ctx.stroke();
+  if (frac < 1) {
+    rimArc(aBreak, a0 + TAU);
+    ctx.setLineDash([3 * lw, 5 * lw]);
+    ctx.strokeStyle = rgba(P.hot, 0.8); ctx.lineWidth = 1.4 * lw; ctx.stroke();
+    ctx.setLineDash([]);
+    for (const a of [a0, aBreak]) {
+      ctx.beginPath(); ctx.arc(cx + H * G.disc * Math.cos(a), cy + H * G.disc * Math.sin(a), 3 * lw, 0, TAU);
+      ctx.fillStyle = rgba(P.gold); ctx.fill();
+    }
+  }
 
   // Faint guide rosette inside disc (concentric rings + rays)
   ctx.strokeStyle = rgba(P.cream, 0.06);
@@ -860,9 +933,13 @@ cv.addEventListener('mousemove', e => {
       html = `<b>${escapeHtml(u.id)}</b><span class="m">${escapeHtml(best.w.p.id)} · ${escapeHtml(u.file || '')}${u.line ? ':' + u.line : ''}<br>` +
         `${u.loc} LOC · cyclomatic ${u.cyclomatic} · deviation ${(u.deviation || 0).toFixed(2)}</span>` +
         (u.reasons || []).map(r => `<div class="r">${escapeHtml(r)}</div>`).join('');
-    } else if (S.lBorder) {
+    } else {
       const dx = mx - hit.cx, dy = my - hit.cy, rr = Math.hypot(dx, dy);
-      if (rr > hit.H * G.ringIn && rr < hit.H * G.ringOut) {
+      const sc = S.scene.summary && S.scene.summary.score;
+      if (sc && Math.abs(rr - hit.H * G.disc) < hit.H * 0.025) {
+        html = `<b>Score ${Math.round(sc.total)} / 100</b><span class="m">harmony ${Math.round(sc.harmony)} · health ${Math.round(sc.health)}</span>` +
+          (sc.components || []).map(c => `<div>${escapeHtml(c.name)} ${Math.round(c.value)} <span class="m">— ${escapeHtml(c.detail)}</span></div>`).join('');
+      } else if (S.lBorder && rr > hit.H * G.ringIn && rr < hit.H * G.ringOut) {
         const n = hit.pkgs.length;
         let a = Math.atan2(dy, dx) + Math.PI / 2; if (a < 0) a += TAU;
         const p = hit.pkgs[Math.floor(a / (TAU / n)) % n];

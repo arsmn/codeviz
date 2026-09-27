@@ -48,6 +48,7 @@ type Summary struct {
 	MedianCyclomatic float64 // per unit
 	ImportDensity    float64 // edges / (n·(n-1))
 	MeanInstability  float64
+	Score            OverallScore
 }
 
 // Score says how far something sits from the codebase baseline.
